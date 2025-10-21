@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Grid,
@@ -13,6 +13,7 @@ import {
   ListItemAvatar,
   Chip,
   Paper,
+  Divider,
 } from '@mui/material';
 import {
   People,
@@ -23,14 +24,41 @@ import {
   Assignment,
   Notifications,
   Schedule,
+  Settings,
+  Email,
+  Phone,
+  Language,
+  AttachMoney,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  
+  // Admin settings state
+  const [adminSettings, setAdminSettings] = useState({
+    schoolName: 'Jolly Children Academic Center',
+    schoolAddress: '123 Education Street, Learning City, LC 12345',
+    schoolPhone: '+1 (555) 123-4567',
+    schoolEmail: 'info@jollychildren.edu',
+    schoolWebsite: 'www.jollychildren.edu',
+    academicYear: '2024-2025',
+    currency: 'PHP',
+    timezone: 'America/New_York',
+    language: 'English',
+    notifications: {
+      email: true,
+      sms: false,
+      push: true,
+    },
+    backup: {
+      autoBackup: true,
+      backupFrequency: 'Daily',
+      cloudStorage: true,
+    },
+  });
 
-  // Mock data - in a real app, this would come from an API
-  const stats = [
+  const [stats, setStats] = useState([
     {
       title: 'Total Students',
       value: '1,247',
@@ -54,25 +82,56 @@ const Dashboard: React.FC = () => {
     },
     {
       title: 'Outstanding Invoices',
-      value: '$12,450',
+      value: '₱12,450',
       change: '-5%',
       icon: <Payment />,
       color: 'warning',
     },
-  ];
+  ]);
 
-  const recentActivities = [
+  const [recentActivities, setRecentActivities] = useState([
     { id: 1, action: 'New student enrolled', student: 'Sarah Johnson', time: '2 hours ago', type: 'enrollment' },
     { id: 2, action: 'Attendance marked', student: 'Grade 3A', time: '3 hours ago', type: 'attendance' },
     { id: 3, action: 'Payment received', student: 'Mike Wilson', time: '4 hours ago', type: 'payment' },
     { id: 4, action: 'Grade submitted', student: 'Math - Grade 5', time: '5 hours ago', type: 'grading' },
-  ];
+  ]);
 
-  const upcomingEvents = [
+  const [upcomingEvents, setUpcomingEvents] = useState([
     { title: 'Parent-Teacher Meeting', date: 'Tomorrow, 2:00 PM', type: 'meeting' },
     { title: 'Monthly Report Due', date: 'Friday, 5:00 PM', type: 'deadline' },
     { title: 'School Assembly', date: 'Next Monday, 9:00 AM', type: 'event' },
-  ];
+  ]);
+
+  useEffect(() => {
+    try {
+      // Load admin settings
+      const settingsData = localStorage.getItem('appSettings');
+      if (settingsData) {
+        const parsedSettings = JSON.parse(settingsData);
+        setAdminSettings(prev => ({ ...prev, ...parsedSettings }));
+      }
+      
+      // Load dashboard data
+      const s = localStorage.getItem('dashboard:stats');
+      const a = localStorage.getItem('dashboard:activities');
+      const e = localStorage.getItem('dashboard:events');
+      if (s) setStats(JSON.parse(s));
+      if (a) setRecentActivities(JSON.parse(a));
+      if (e) setUpcomingEvents(JSON.parse(e));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem('dashboard:stats', JSON.stringify(stats)); } catch {}
+  }, [stats]);
+  useEffect(() => {
+    try { localStorage.setItem('dashboard:activities', JSON.stringify(recentActivities)); } catch {}
+  }, [recentActivities]);
+  useEffect(() => {
+    try { localStorage.setItem('dashboard:events', JSON.stringify(upcomingEvents)); } catch {}
+  }, [upcomingEvents]);
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -95,11 +154,57 @@ const Dashboard: React.FC = () => {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Dashboard
+      {/* School Information Header */}
+      <Card sx={{ mb: 4, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
+                {adminSettings.schoolName}
+              </Typography>
+              <Typography variant="h6" sx={{ mb: 1, opacity: 0.9 }}>
+                Academic Year: {adminSettings.academicYear}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Email sx={{ fontSize: 18 }} />
+                  <Typography variant="body2">{adminSettings.schoolEmail}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Phone sx={{ fontSize: 18 }} />
+                  <Typography variant="body2">{adminSettings.schoolPhone}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Language sx={{ fontSize: 18 }} />
+                  <Typography variant="body2">{adminSettings.language}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <AttachMoney sx={{ fontSize: 18 }} />
+                  <Typography variant="body2">{adminSettings.currency}</Typography>
+                </Box>
+              </Box>
+            </Box>
+            <Button
+              variant="contained"
+              startIcon={<Settings />}
+              onClick={() => navigate('/settings')}
+              sx={{ 
+                backgroundColor: 'rgba(255,255,255,0.2)', 
+                '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)' },
+                color: 'white'
+              }}
+            >
+              Manage Settings
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
+
+      <Typography variant="h5" gutterBottom>
+        Dashboard Overview
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Welcome back! Here's what's happening at Jolly Children Academic Center.
+        Welcome back! Here's what's happening at {adminSettings.schoolName}.
       </Typography>
 
       {/* Stats Cards */}
@@ -132,6 +237,68 @@ const Dashboard: React.FC = () => {
           </Grid>
         ))}
       </Grid>
+
+      {/* Admin Settings Summary */}
+      <Card sx={{ mb: 4 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Settings sx={{ mr: 1 }} />
+            <Typography variant="h6">System Configuration</Typography>
+          </Box>
+          <Grid container spacing={3}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" color="primary" gutterBottom>
+                  {adminSettings.language}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  System Language
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" color="primary" gutterBottom>
+                  {adminSettings.currency}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Currency
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" color="primary" gutterBottom>
+                  {adminSettings.backup.backupFrequency}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Backup Frequency
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" color="primary" gutterBottom>
+                  {adminSettings.notifications.email ? 'Enabled' : 'Disabled'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Email Notifications
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            <strong>School Address:</strong> {adminSettings.schoolAddress}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            <strong>Website:</strong> {adminSettings.schoolWebsite}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            <strong>Timezone:</strong> {adminSettings.timezone}
+          </Typography>
+        </CardContent>
+      </Card>
 
       <Grid container spacing={3}>
         {/* Recent Activities */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -53,9 +53,10 @@ const Communications: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [composeDialogOpen, setComposeDialogOpen] = useState(false);
   const [selectedType, setSelectedType] = useState('Announcement');
+  const [messages, setMessages] = useState<Communication[]>([]);
 
-  // Mock data - in a real app, this would come from an API
-  const communications: Communication[] = [
+  // Default seed used on first run only
+  const defaultCommunicationsSeed: Communication[] = [
     {
       id: 1,
       type: 'Announcement',
@@ -90,6 +91,27 @@ const Communications: React.FC = () => {
       priority: 'Low',
     },
   ];
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('communications');
+      if (raw) {
+        setMessages(JSON.parse(raw) as Communication[]);
+      } else {
+        setMessages(defaultCommunicationsSeed);
+      }
+    } catch {
+      setMessages(defaultCommunicationsSeed);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('communications', JSON.stringify(messages));
+    } catch {
+      // ignore
+    }
+  }, [messages]);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -138,7 +160,7 @@ const Communications: React.FC = () => {
       case 0: // All Communications
         return (
           <List>
-            {communications.map((comm) => (
+            {messages.map((comm) => (
               <React.Fragment key={comm.id}>
                 <ListItem>
                   <ListItemIcon>
@@ -191,7 +213,7 @@ const Communications: React.FC = () => {
       case 1: // Announcements
         return (
           <List>
-            {communications.filter(c => c.type === 'Announcement').map((comm) => (
+            {messages.filter(c => c.type === 'Announcement').map((comm) => (
               <React.Fragment key={comm.id}>
                 <ListItem>
                   <ListItemIcon>
@@ -211,7 +233,7 @@ const Communications: React.FC = () => {
       case 2: // Emails
         return (
           <List>
-            {communications.filter(c => c.type === 'Email').map((comm) => (
+            {messages.filter(c => c.type === 'Email').map((comm) => (
               <React.Fragment key={comm.id}>
                 <ListItem>
                   <ListItemIcon>
@@ -308,7 +330,7 @@ const Communications: React.FC = () => {
           <Card>
             <CardContent sx={{ textAlign: 'center' }}>
               <Typography variant="h4" color="primary">
-                {communications.length}
+                {messages.length}
               </Typography>
               <Typography variant="body2">Total Messages</Typography>
             </CardContent>
@@ -318,7 +340,7 @@ const Communications: React.FC = () => {
           <Card>
             <CardContent sx={{ textAlign: 'center' }}>
               <Typography variant="h4" color="success.main">
-                {communications.filter(c => c.status === 'Sent').length}
+                {messages.filter(c => c.status === 'Sent').length}
               </Typography>
               <Typography variant="body2">Sent</Typography>
             </CardContent>
@@ -328,7 +350,7 @@ const Communications: React.FC = () => {
           <Card>
             <CardContent sx={{ textAlign: 'center' }}>
               <Typography variant="h4" color="warning.main">
-                {communications.filter(c => c.status === 'Scheduled').length}
+                {messages.filter(c => c.status === 'Scheduled').length}
               </Typography>
               <Typography variant="body2">Scheduled</Typography>
             </CardContent>
@@ -338,7 +360,7 @@ const Communications: React.FC = () => {
           <Card>
             <CardContent sx={{ textAlign: 'center' }}>
               <Typography variant="h4" color="info.main">
-                {communications.filter(c => c.priority === 'High').length}
+                {messages.filter(c => c.priority === 'High').length}
               </Typography>
               <Typography variant="body2">High Priority</Typography>
             </CardContent>

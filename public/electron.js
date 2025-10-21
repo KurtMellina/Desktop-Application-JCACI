@@ -1,8 +1,27 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
+const { MongoClient, ServerApiVersion } = require('mongodb');
 
 let mainWindow;
+let mongoClient; // Reused client for the app lifecycle
+let mongoDb; // Selected database reference
+
+async function connectToMongo() {
+  const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
+  const dbName = process.env.MONGODB_DB || 'my_desktop_app';
+
+  mongoClient = new MongoClient(uri, {
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: true,
+      deprecationErrors: true
+    }
+  });
+
+  await mongoClient.connect();
+  mongoDb = mongoClient.db(dbName);
+}
 
 function createWindow() {
   // Create the browser window
@@ -45,7 +64,48 @@ function createWindow() {
 }
 
 // This method will be called when Electron has finished initialization
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  try {
+    await connectToMongo();
+  } catch (error) {
+    // Log and continue to open the window so user can see an error UI if desired
+    console.error('Failed to connect to MongoDB:', error);
+  }
+
+  // IPC handlers
+  ipcMain.handle('db:ping', async () => {
+    if (!mongoClient) return { ok: false, error: 'Mongo client not initialized' };
+    try {
+      const admin = mongoDb.admin();
+      const result = await admin.ping();
+      return { ok: true, result };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('db:findOne', async (event, { collection, filter }) => {
+    if (!mongoDb) return { ok: false, error: 'Database is not available' };
+    try {
+      const doc = await mongoDb.collection(collection).findOne(filter || {});
+      return { ok: true, doc };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('db:insertOne', async (event, { collection, document }) => {
+    if (!mongoDb) return { ok: false, error: 'Database is not available' };
+    try {
+      const result = await mongoDb.collection(collection).insertOne(document || {});
+      return { ok: true, insertedId: result.insertedId };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
+  createWindow();
+});
 
 // Quit when all windows are closed
 app.on('window-all-closed', () => {
@@ -57,6 +117,16 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  }
+});
+
+app.on('before-quit', async () => {
+  if (mongoClient) {
+    try {
+      await mongoClient.close();
+    } catch (e) {
+      console.error('Error closing MongoDB client:', e);
+    }
   }
 });
 

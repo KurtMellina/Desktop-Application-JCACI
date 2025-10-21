@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Snackbar,
 } from '@mui/material';
 import {
   Settings as SettingsIcon,
@@ -41,6 +42,7 @@ import {
   Delete,
   Add,
 } from '@mui/icons-material';
+import { settingsService, usersService, User as UserType, UserInsert, UserUpdate } from '../../services/database';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -73,7 +75,7 @@ const Settings: React.FC = () => {
     schoolEmail: 'info@jollychildren.edu',
     schoolWebsite: 'www.jollychildren.edu',
     academicYear: '2024-2025',
-    currency: 'USD',
+    currency: 'PHP',
     timezone: 'America/New_York',
     language: 'English',
     notifications: {
@@ -89,14 +91,16 @@ const Settings: React.FC = () => {
   });
 
   const [userDialogOpen, setUserDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-
-  // Mock users data
-  const users = [
-    { id: 1, name: 'John Smith', email: 'john.smith@jollychildren.edu', role: 'Admin', status: 'Active' },
-    { id: 2, name: 'Sarah Johnson', email: 'sarah.johnson@jollychildren.edu', role: 'Teacher', status: 'Active' },
-    { id: 3, name: 'Michael Brown', email: 'michael.brown@jollychildren.edu', role: 'Registrar', status: 'Active' },
-  ];
+  const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
+  const [users, setUsers] = useState<UserType[]>([]);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    email: '',
+    role: 'Teacher' as 'Admin' | 'Teacher' | 'Staff',
+    password: '',
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
@@ -119,31 +123,139 @@ const Settings: React.FC = () => {
     }));
   };
 
-  const handleSaveSettings = () => {
-    // In a real app, this would save to an API
-    console.log('Saving settings:', settings);
-    alert('Settings saved successfully!');
+  // Load settings from database
+  const loadSettings = async () => {
+    try {
+      const dbSettings = await settingsService.getAll();
+      
+      // Map database settings to component state
+      const mappedSettings = {
+        schoolName: dbSettings.school_name || 'Jolly Children Academic Center',
+        schoolAddress: dbSettings.school_address || '123 Education Street, Learning City, LC 12345',
+        schoolPhone: dbSettings.school_phone || '+1 (555) 123-4567',
+        schoolEmail: dbSettings.school_email || 'info@jollychildren.edu',
+        schoolWebsite: dbSettings.school_website || 'www.jollychildren.edu',
+        academicYear: dbSettings.academic_year || '2024-2025',
+        currency: dbSettings.currency || 'PHP',
+        timezone: dbSettings.timezone || 'America/New_York',
+        language: dbSettings.language || 'English',
+        notifications: dbSettings.notifications || { email: true, sms: false, push: true },
+        backup: dbSettings.backup || { autoBackup: true, backupFrequency: 'Daily', cloudStorage: true },
+      };
+      
+      setSettings(mappedSettings);
+    } catch (error: any) {
+      console.error('Error loading settings:', error);
+      // Keep default settings if database fails
+    }
+  };
+
+  // Load users from database
+  const loadUsers = async () => {
+    try {
+      const usersData = await usersService.getAll();
+      setUsers(usersData);
+    } catch (error: any) {
+      console.error('Error loading users:', error);
+      setError('Failed to load users');
+    }
+  };
+
+  useEffect(() => {
+    loadSettings();
+    loadUsers();
+  }, []);
+
+  const handleSaveSettings = async () => {
+    try {
+      // Save settings to database
+      await settingsService.set('school_name', settings.schoolName);
+      await settingsService.set('school_address', settings.schoolAddress);
+      await settingsService.set('school_phone', settings.schoolPhone);
+      await settingsService.set('school_email', settings.schoolEmail);
+      await settingsService.set('school_website', settings.schoolWebsite);
+      await settingsService.set('academic_year', settings.academicYear);
+      await settingsService.set('currency', settings.currency);
+      await settingsService.set('timezone', settings.timezone);
+      await settingsService.set('language', settings.language);
+      await settingsService.set('notifications', settings.notifications);
+      await settingsService.set('backup', settings.backup);
+      
+      setSuccess(true);
+      setError(null);
+    } catch (error: any) {
+      setError(error.message || 'Failed to save settings');
+    }
   };
 
   const handleAddUser = () => {
     setSelectedUser(null);
+    setUserForm({
+      name: '',
+      email: '',
+      role: 'Teacher',
+      password: '',
+    });
     setUserDialogOpen(true);
   };
 
-  const handleEditUser = (user: any) => {
+  const handleEditUser = (user: UserType) => {
     setSelectedUser(user);
+    setUserForm({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      password: '',
+    });
     setUserDialogOpen(true);
   };
 
-  const handleDeleteUser = (user: any) => {
+  const handleDeleteUser = async (user: UserType) => {
     if (window.confirm(`Are you sure you want to delete ${user.name}?`)) {
-      console.log('Delete user:', user);
+      try {
+        await usersService.delete(user.id);
+        await loadUsers(); // Refresh the list
+        setSuccess(true);
+        setError(null);
+      } catch (error: any) {
+        setError(error.message || 'Failed to delete user');
+      }
     }
   };
 
-  const handleSaveUser = () => {
-    console.log('Save user:', selectedUser);
-    setUserDialogOpen(false);
+  const handleSaveUser = async () => {
+    try {
+      if (selectedUser) {
+        // Update existing user
+        const updateData: UserUpdate = {
+          name: userForm.name,
+          email: userForm.email,
+          role: userForm.role,
+        };
+        await usersService.update(selectedUser.id, updateData);
+      } else {
+        // Create new user - validate required fields
+        if (!userForm.password) {
+          setError('Password is required for new users');
+          return;
+        }
+        
+        const newUser: UserInsert = {
+          name: userForm.name,
+          email: userForm.email,
+          role: userForm.role,
+          password: userForm.password,
+        };
+        await usersService.create(newUser);
+      }
+      
+      await loadUsers(); // Refresh the list
+      setUserDialogOpen(false);
+      setSuccess(true);
+      setError(null);
+    } catch (error: any) {
+      setError(error.message || 'Failed to save user');
+    }
   };
 
   const getTabContent = (tabIndex: number) => {
@@ -224,6 +336,7 @@ const Settings: React.FC = () => {
                   <MenuItem value="USD">USD ($)</MenuItem>
                   <MenuItem value="EUR">EUR (€)</MenuItem>
                   <MenuItem value="GBP">GBP (£)</MenuItem>
+                  <MenuItem value="PHP">PHP (₱)</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -361,7 +474,7 @@ const Settings: React.FC = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary={user.name}
-                    secondary={`${user.email} • ${user.role} • ${user.status}`}
+                    secondary={`${user.email} • ${user.role}`}
                   />
                   <IconButton onClick={() => handleEditUser(user)}>
                     <Edit />
@@ -424,7 +537,8 @@ const Settings: React.FC = () => {
               <TextField
                 fullWidth
                 label="Full Name"
-                defaultValue={selectedUser?.name || ''}
+                value={userForm.name}
+                onChange={(e) => setUserForm(prev => ({ ...prev, name: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -432,7 +546,8 @@ const Settings: React.FC = () => {
                 fullWidth
                 label="Email"
                 type="email"
-                defaultValue={selectedUser?.email || ''}
+                value={userForm.email}
+                onChange={(e) => setUserForm(prev => ({ ...prev, email: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -440,25 +555,12 @@ const Settings: React.FC = () => {
                 <InputLabel>Role</InputLabel>
                 <Select
                   label="Role"
-                  defaultValue={selectedUser?.role || 'Teacher'}
+                  value={userForm.role}
+                  onChange={(e) => setUserForm(prev => ({ ...prev, role: e.target.value as 'Admin' | 'Teacher' | 'Staff' }))}
                 >
                   <MenuItem value="Admin">Admin</MenuItem>
                   <MenuItem value="Teacher">Teacher</MenuItem>
-                  <MenuItem value="Registrar">Registrar</MenuItem>
-                  <MenuItem value="Finance">Finance</MenuItem>
-                  <MenuItem value="Receptionist">Receptionist</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  label="Status"
-                  defaultValue={selectedUser?.status || 'Active'}
-                >
-                  <MenuItem value="Active">Active</MenuItem>
-                  <MenuItem value="Inactive">Inactive</MenuItem>
+                  <MenuItem value="Staff">Staff</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -467,7 +569,10 @@ const Settings: React.FC = () => {
                 fullWidth
                 label="Password"
                 type="password"
+                value={userForm.password}
+                onChange={(e) => setUserForm(prev => ({ ...prev, password: e.target.value }))}
                 placeholder="Enter new password"
+                helperText={selectedUser ? "Leave blank to keep current password" : "Password is required for new users"}
               />
             </Grid>
           </Grid>
@@ -483,6 +588,28 @@ const Settings: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Error Notification */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+      >
+        <Alert onClose={() => setError(null)} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
+
+      {/* Success Notification */}
+      <Snackbar
+        open={success}
+        autoHideDuration={3000}
+        onClose={() => setSuccess(false)}
+      >
+        <Alert onClose={() => setSuccess(false)} severity="success">
+          Settings saved successfully!
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

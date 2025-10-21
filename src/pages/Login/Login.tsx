@@ -13,7 +13,7 @@ import {
 import { School, Lock, Email } from '@mui/icons-material';
 
 interface LoginProps {
-  onLogin: (user: any) => void;
+  onLogin: (credentials: { email: string; password: string }) => Promise<void>;
 }
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
@@ -36,30 +36,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setLoading(true);
     setError('');
 
-    // Simulate API call
-    setTimeout(() => {
-      // Mock authentication - in a real app, this would be an API call
-      if (formData.email === 'admin@jollychildren.edu' && formData.password === 'admin123') {
-        onLogin({
-          id: 1,
-          name: 'Administrator',
-          email: formData.email,
-          role: 'Admin',
-          avatar: null,
-        });
-      } else if (formData.email === 'teacher@jollychildren.edu' && formData.password === 'teacher123') {
-        onLogin({
-          id: 2,
-          name: 'John Teacher',
-          email: formData.email,
-          role: 'Teacher',
-          avatar: null,
-        });
-      } else {
-        setError('Invalid email or password');
-      }
+    try {
+      await onLogin(formData);
+    } catch (error: any) {
+      setError(error.message || 'Login failed');
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (

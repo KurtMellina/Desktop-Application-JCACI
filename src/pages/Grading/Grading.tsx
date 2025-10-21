@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -25,6 +25,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   Grade,
@@ -34,16 +36,16 @@ import {
   Print,
   FilterList,
   Assignment,
+  Delete,
 } from '@mui/icons-material';
+import { studentsService, gradesService, Grade as GradeRecord, GradeInsert, GradeUpdate } from '../../services/database';
 
-interface GradeRecord {
-  id: number;
-  studentId: number;
+// Transform the database grade to match component interface
+interface GradeDisplay extends Omit<GradeRecord, 'grade'> {
   studentName: string;
-  subject: string;
   assignment: string;
-  grade: string;
-  percentage: number;
+  grade: string; // Letter grade (A, B, C, D)
+  percentage: number; // Numeric grade
   date: string;
   term: string;
 }
@@ -53,50 +55,71 @@ const Grading: React.FC = () => {
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [gradeDialogOpen, setGradeDialogOpen] = useState(false);
-  const [editingGrade, setEditingGrade] = useState<GradeRecord | null>(null);
+  const [editingGrade, setEditingGrade] = useState<GradeDisplay | null>(null);
+  const [records, setRecords] = useState<GradeDisplay[]>([]);
+  const [students, setStudents] = useState<{ id: number; firstName: string; lastName: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Controlled form state for dialog
+  const [formStudentId, setFormStudentId] = useState<number | ''>('');
+  const [formSubject, setFormSubject] = useState('');
+  const [formAssignment, setFormAssignment] = useState('');
+  const [formGrade, setFormGrade] = useState('');
+  const [formPercentage, setFormPercentage] = useState<number | ''>('');
+  const [formDate, setFormDate] = useState('');
+  const [formTerm, setFormTerm] = useState('');
 
   const subjects = ['Mathematics', 'Science', 'English', 'History', 'Art', 'Physical Education'];
   const terms = ['Fall 2023', 'Spring 2024', 'Summer 2024'];
-  const grades = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+  const grades = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
 
-  // Mock data - in a real app, this would come from an API
-  const gradeRecords: GradeRecord[] = [
-    {
-      id: 1,
-      studentId: 1,
-      studentName: 'Sarah Johnson',
-      subject: 'Mathematics',
-      assignment: 'Algebra Test',
-      grade: 'A',
-      percentage: 95,
-      date: '2024-01-15',
-      term: 'Fall 2023',
-    },
-    {
-      id: 2,
-      studentId: 2,
-      studentName: 'Michael Wilson',
-      subject: 'Science',
-      assignment: 'Chemistry Lab',
-      grade: 'B+',
-      percentage: 88,
-      date: '2024-01-14',
-      term: 'Fall 2023',
-    },
-    {
-      id: 3,
-      studentId: 3,
-      studentName: 'Emily Davis',
-      subject: 'English',
-      assignment: 'Essay Writing',
-      grade: 'A-',
-      percentage: 92,
-      date: '2024-01-13',
-      term: 'Fall 2023',
-    },
-  ];
+  // Load grades and students from database
+  const loadGrades = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load all grades
+      const allGrades = await gradesService.getAll();
+      const allStudents = await studentsService.getAll();
+      
+      // Transform grades to match component interface
+      const transformedGrades: GradeDisplay[] = allGrades.map(grade => {
+        const student = allStudents.find(s => s.id === grade.student_id);
+        return {
+          ...grade,
+          studentName: student ? `${student.first_name} ${student.last_name}` : 'Unknown Student',
+          assignment: grade.notes || 'Assignment',
+          grade: grade.grade >= 90 ? 'A' : grade.grade >= 80 ? 'B' : grade.grade >= 70 ? 'C' : 'D',
+          percentage: grade.grade,
+          date: grade.created_at.split('T')[0],
+          term: grade.academic_year,
+        };
+      });
+      
+      setRecords(transformedGrades);
+      
+      // Set students for selection
+      setStudents(allStudents.map(s => ({ 
+        id: s.id, 
+        firstName: s.first_name, 
+        lastName: s.last_name 
+      })));
+      
+    } catch (error: any) {
+      setError(error.message || 'Failed to load grades');
+      console.error('Error loading grades:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const filteredGrades = gradeRecords.filter(record => {
+  useEffect(() => {
+    loadGrades();
+  }, []);
+
+  const filteredGrades = records.filter(record => {
     const matchesSubject = !selectedSubject || record.subject === selectedSubject;
     const matchesTerm = !selectedTerm || record.term === selectedTerm;
     return matchesSubject && matchesTerm;
@@ -111,18 +134,79 @@ const Grading: React.FC = () => {
 
   const handleAddGrade = () => {
     setEditingGrade(null);
+    setFormStudentId('');
+    setFormSubject(selectedSubject || '');
+    setFormAssignment('');
+    setFormGrade('');
+    setFormPercentage('');
+    setFormDate(new Date().toISOString().slice(0, 10));
+    setFormTerm(selectedTerm || '');
     setGradeDialogOpen(true);
   };
 
-  const handleEditGrade = (grade: GradeRecord) => {
+  const handleEditGrade = (grade: GradeDisplay) => {
     setEditingGrade(grade);
+    setFormStudentId(grade.student_id);
+    setFormSubject(grade.subject);
+    setFormAssignment(grade.assignment);
+    setFormGrade(grade.grade);
+    setFormPercentage(grade.percentage);
+    setFormDate(grade.date);
+    setFormTerm(grade.term);
     setGradeDialogOpen(true);
   };
 
-  const handleSaveGrade = () => {
-    // In a real app, this would save to an API
-    console.log('Saving grade:', editingGrade);
-    setGradeDialogOpen(false);
+  const handleDeleteGrade = async (grade: GradeDisplay) => {
+    if (window.confirm(`Are you sure you want to delete this grade record?`)) {
+      try {
+        await gradesService.delete(grade.id);
+        await loadGrades(); // Refresh the list
+        setError(null);
+      } catch (error: any) {
+        setError(error.message || 'Failed to delete grade');
+      }
+    }
+  };
+
+  const handleSaveGrade = async () => {
+    if (!formStudentId || !formSubject || !formGrade || formPercentage === '') {
+      setError('Please fill Student, Subject, Grade, and Percentage.');
+      return;
+    }
+    
+    try {
+      if (editingGrade) {
+        // Update existing grade
+        const updateData: GradeUpdate = {
+          student_id: formStudentId as number,
+          subject: formSubject,
+          grade: Number(formPercentage),
+          max_grade: 100,
+          semester: formTerm || selectedTerm || '',
+          academic_year: '2024-2025',
+          notes: formAssignment,
+        };
+        await gradesService.update(editingGrade.id, updateData);
+      } else {
+        // Create new grade
+        const newGrade: GradeInsert = {
+          student_id: formStudentId as number,
+          subject: formSubject,
+          grade: Number(formPercentage),
+          max_grade: 100,
+          semester: formTerm || selectedTerm || '',
+          academic_year: '2024-2025',
+          notes: formAssignment,
+        };
+        await gradesService.create(newGrade);
+      }
+      
+      await loadGrades(); // Refresh the list
+      setGradeDialogOpen(false);
+      setError(null);
+    } catch (error: any) {
+      setError(error.message || 'Failed to save grade');
+    }
   };
 
   return (
@@ -312,6 +396,15 @@ const Grading: React.FC = () => {
                           <Edit />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Delete Grade">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleDeleteGrade(record)}
+                          color="error"
+                        >
+                          <Delete />
+                        </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -331,17 +424,18 @@ const Grading: React.FC = () => {
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Student</InputLabel>
-                <Select label="Student">
-                  <MenuItem value="sarah">Sarah Johnson</MenuItem>
-                  <MenuItem value="michael">Michael Wilson</MenuItem>
-                  <MenuItem value="emily">Emily Davis</MenuItem>
+                <Select label="Student" value={formStudentId} onChange={(e) => setFormStudentId(Number(e.target.value))}>
+                  {students.length === 0 && <MenuItem value="" disabled>No students</MenuItem>}
+                  {students.map(s => (
+                    <MenuItem key={s.id} value={s.id}>{s.firstName} {s.lastName}</MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Subject</InputLabel>
-                <Select label="Subject">
+                <Select label="Subject" value={formSubject} onChange={(e) => setFormSubject(e.target.value)}>
                   {subjects.map(subject => (
                     <MenuItem key={subject} value={subject}>
                       {subject}
@@ -354,14 +448,16 @@ const Grading: React.FC = () => {
               <TextField
                 fullWidth
                 label="Assignment/Test Name"
-                defaultValue={editingGrade?.assignment || ''}
+                value={formAssignment}
+                onChange={(e) => setFormAssignment(e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Grade (A, B+, B, etc.)"
-                defaultValue={editingGrade?.grade || ''}
+                value={formGrade}
+                onChange={(e) => setFormGrade(e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -369,7 +465,8 @@ const Grading: React.FC = () => {
                 fullWidth
                 label="Percentage"
                 type="number"
-                defaultValue={editingGrade?.percentage || ''}
+                value={formPercentage}
+                onChange={(e) => setFormPercentage(e.target.value === '' ? '' : Number(e.target.value))}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -377,14 +474,15 @@ const Grading: React.FC = () => {
                 fullWidth
                 label="Date"
                 type="date"
-                defaultValue={editingGrade?.date || ''}
+                value={formDate}
+                onChange={(e) => setFormDate(e.target.value)}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Term</InputLabel>
-                <Select label="Term">
+                <Select label="Term" value={formTerm} onChange={(e) => setFormTerm(e.target.value)}>
                   {terms.map(term => (
                     <MenuItem key={term} value={term}>
                       {term}
@@ -406,6 +504,17 @@ const Grading: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Error Notification */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+      >
+        <Alert onClose={() => setError(null)} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

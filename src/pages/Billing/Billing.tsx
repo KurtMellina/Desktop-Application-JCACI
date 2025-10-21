@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -27,6 +27,8 @@ import {
   Select,
   MenuItem,
   Divider,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   Add,
@@ -39,72 +41,81 @@ import {
   FilterList,
   Visibility,
 } from '@mui/icons-material';
+import { studentsService, billingService, Billing as BillingType, BillingInsert, BillingUpdate } from '../../services/database';
 
-interface Invoice {
-  id: string;
+// Transform the database billing to match component interface
+interface BillingDisplay extends BillingType {
   studentName: string;
   studentId: string;
-  amount: number;
-  dueDate: string;
-  status: 'Paid' | 'Pending' | 'Overdue' | 'Cancelled';
-  description: string;
   createdDate: string;
+  dueDate: string; // Add this property to match the component usage
+  status: 'Pending' | 'Paid' | 'Overdue' | 'Cancelled';
 }
 
 const Billing: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<BillingDisplay | null>(null);
+  const [invoiceList, setInvoiceList] = useState<BillingDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [students, setStudents] = useState<{ id: number; name: string }[]>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
+  const [invoiceForm, setInvoiceForm] = useState({
+    amount: 500,
+    description: 'Monthly Tuition',
+    dueDate: new Date().toISOString().slice(0, 10),
+    status: 'Pending' as 'Pending' | 'Paid' | 'Overdue' | 'Cancelled',
+    paymentMethod: '',
+  });
 
-  // Mock data - in a real app, this would come from an API
-  const invoices: Invoice[] = [
-    {
-      id: 'INV-001',
-      studentName: 'Sarah Johnson',
-      studentId: 'STU-001',
-      amount: 500,
-      dueDate: '2024-02-01',
-      status: 'Pending',
-      description: 'Monthly Tuition - January 2024',
-      createdDate: '2024-01-01',
-    },
-    {
-      id: 'INV-002',
-      studentName: 'Michael Wilson',
-      studentId: 'STU-002',
-      amount: 500,
-      dueDate: '2024-01-15',
-      status: 'Paid',
-      description: 'Monthly Tuition - January 2024',
-      createdDate: '2024-01-01',
-    },
-    {
-      id: 'INV-003',
-      studentName: 'Emily Davis',
-      studentId: 'STU-003',
-      amount: 750,
-      dueDate: '2023-12-01',
-      status: 'Overdue',
-      description: 'Monthly Tuition - December 2023',
-      createdDate: '2023-12-01',
-    },
-    {
-      id: 'INV-004',
-      studentName: 'James Brown',
-      studentId: 'STU-004',
-      amount: 500,
-      dueDate: '2024-02-15',
-      status: 'Pending',
-      description: 'Monthly Tuition - February 2024',
-      createdDate: '2024-02-01',
-    },
-  ];
+  // Load billing and students from database
+  const loadBilling = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load all billing records
+      const allBilling = await billingService.getAll(); // Get all billing records
+      const allStudents = await studentsService.getAll();
+      
+      // Transform billing to match component interface
+      const transformedBilling: BillingDisplay[] = allBilling.map(billing => {
+        const student = allStudents.find(s => s.id === billing.student_id);
+        return {
+          ...billing,
+          studentName: student ? `${student.first_name} ${student.last_name}` : 'Unknown Student',
+          studentId: `STU-${billing.student_id.toString().padStart(3, '0')}`,
+          createdDate: billing.created_at.split('T')[0],
+          dueDate: billing.due_date, // Map due_date to dueDate
+        };
+      });
+      
+      setInvoiceList(transformedBilling);
+      
+      // Set students for selection
+      setStudents(allStudents.map(s => ({ 
+        id: s.id, 
+        name: `${s.first_name} ${s.last_name}` 
+      })));
+      
+    } catch (error: any) {
+      setError(error.message || 'Failed to load billing records');
+      console.error('Error loading billing:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const filteredInvoices = invoices.filter(invoice => {
+  useEffect(() => {
+    loadBilling();
+  }, []);
+
+  const filteredInvoices = invoiceList.filter(invoice => {
     const matchesSearch = 
       invoice.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.id.toString().toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.studentId.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'All' || invoice.status === statusFilter;
@@ -123,15 +134,15 @@ const Billing: React.FC = () => {
   };
 
   const getBillingStats = () => {
-    const total = invoices.length;
-    const paid = invoices.filter(i => i.status === 'Paid').length;
-    const pending = invoices.filter(i => i.status === 'Pending').length;
-    const overdue = invoices.filter(i => i.status === 'Overdue').length;
-    const totalAmount = invoices.reduce((sum, invoice) => sum + invoice.amount, 0);
-    const paidAmount = invoices
+    const total = invoiceList.length;
+    const paid = invoiceList.filter(i => i.status === 'Paid').length;
+    const pending = invoiceList.filter(i => i.status === 'Pending').length;
+    const overdue = invoiceList.filter(i => i.status === 'Overdue').length;
+    const totalAmount = invoiceList.reduce((sum, invoice) => sum + invoice.amount, 0);
+    const paidAmount = invoiceList
       .filter(i => i.status === 'Paid')
       .reduce((sum, invoice) => sum + invoice.amount, 0);
-    const pendingAmount = invoices
+    const pendingAmount = invoiceList
       .filter(i => i.status === 'Pending' || i.status === 'Overdue')
       .reduce((sum, invoice) => sum + invoice.amount, 0);
 
@@ -142,30 +153,83 @@ const Billing: React.FC = () => {
 
   const handleCreateInvoice = () => {
     setSelectedInvoice(null);
+    setSelectedStudentId(null);
+    setInvoiceForm({
+      amount: 500,
+      description: 'Monthly Tuition',
+      dueDate: new Date().toISOString().slice(0, 10),
+      status: 'Pending',
+      paymentMethod: '',
+    });
     setInvoiceDialogOpen(true);
   };
 
-  const handleEditInvoice = (invoice: Invoice) => {
+  const handleEditInvoice = (invoice: BillingDisplay) => {
     setSelectedInvoice(invoice);
+    setSelectedStudentId(invoice.student_id);
+    setInvoiceForm({
+      amount: invoice.amount,
+      description: invoice.description,
+      dueDate: invoice.dueDate,
+      status: invoice.status,
+      paymentMethod: invoice.payment_method || '',
+    });
     setInvoiceDialogOpen(true);
   };
 
-  const handleViewInvoice = (invoice: Invoice) => {
+  const handleViewInvoice = (invoice: BillingDisplay) => {
     // In a real app, this would open a detailed view or print the invoice
     console.log('View invoice:', invoice);
   };
 
-  const handleDeleteInvoice = (invoice: Invoice) => {
+  const handleDeleteInvoice = async (invoice: BillingDisplay) => {
     if (window.confirm(`Are you sure you want to delete invoice ${invoice.id}?`)) {
-      // In a real app, this would make an API call to delete the invoice
-      console.log('Delete invoice:', invoice);
+      try {
+        await billingService.delete(invoice.id);
+        await loadBilling(); // Refresh the list
+        setError(null);
+      } catch (error: any) {
+        setError(error.message || 'Failed to delete invoice');
+      }
     }
   };
 
-  const handleSaveInvoice = () => {
-    // In a real app, this would save to an API
-    console.log('Save invoice:', selectedInvoice);
-    setInvoiceDialogOpen(false);
+  const handleSaveInvoice = async () => {
+    try {
+      if (selectedInvoice) {
+        // Update existing invoice
+        const updateData: BillingUpdate = {
+          amount: invoiceForm.amount,
+          description: invoiceForm.description,
+          due_date: invoiceForm.dueDate,
+          status: invoiceForm.status,
+          payment_method: invoiceForm.paymentMethod,
+        };
+        await billingService.update(selectedInvoice.id, updateData);
+      } else {
+        // Create new invoice
+        if (!selectedStudentId) {
+          setError('Please select a student');
+          return;
+        }
+        
+        const newInvoice: BillingInsert = {
+          student_id: selectedStudentId,
+          amount: invoiceForm.amount,
+          description: invoiceForm.description,
+          due_date: invoiceForm.dueDate,
+          status: invoiceForm.status,
+          payment_method: invoiceForm.paymentMethod || undefined,
+        };
+        await billingService.create(newInvoice);
+      }
+      
+      await loadBilling(); // Refresh the list
+      setInvoiceDialogOpen(false);
+      setError(null);
+    } catch (error: any) {
+      setError(error.message || 'Failed to save invoice');
+    }
   };
 
   return (
@@ -399,10 +463,16 @@ const Billing: React.FC = () => {
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Student</InputLabel>
-                <Select label="Student">
-                  <MenuItem value="sarah">Sarah Johnson</MenuItem>
-                  <MenuItem value="michael">Michael Wilson</MenuItem>
-                  <MenuItem value="emily">Emily Davis</MenuItem>
+                <Select 
+                  label="Student"
+                  value={selectedStudentId || ''}
+                  onChange={(e) => setSelectedStudentId(Number(e.target.value))}
+                >
+                  {students.map((student) => (
+                    <MenuItem key={student.id} value={student.id}>
+                      {student.name}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -419,7 +489,8 @@ const Billing: React.FC = () => {
                 fullWidth
                 label="Amount"
                 type="number"
-                defaultValue={selectedInvoice?.amount || ''}
+                value={invoiceForm.amount}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
@@ -430,7 +501,8 @@ const Billing: React.FC = () => {
                 fullWidth
                 label="Due Date"
                 type="date"
-                defaultValue={selectedInvoice?.dueDate || ''}
+                value={invoiceForm.dueDate}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, dueDate: e.target.value }))}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
@@ -439,7 +511,8 @@ const Billing: React.FC = () => {
                 <InputLabel>Status</InputLabel>
                 <Select
                   label="Status"
-                  defaultValue={selectedInvoice?.status || 'Pending'}
+                  value={invoiceForm.status}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, status: e.target.value as 'Pending' | 'Paid' | 'Overdue' | 'Cancelled' }))}
                 >
                   <MenuItem value="Pending">Pending</MenuItem>
                   <MenuItem value="Paid">Paid</MenuItem>
@@ -451,7 +524,11 @@ const Billing: React.FC = () => {
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Payment Method</InputLabel>
-                <Select label="Payment Method">
+                <Select 
+                  label="Payment Method"
+                  value={invoiceForm.paymentMethod}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                >
                   <MenuItem value="Cash">Cash</MenuItem>
                   <MenuItem value="Check">Check</MenuItem>
                   <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
@@ -465,7 +542,8 @@ const Billing: React.FC = () => {
                 label="Description"
                 multiline
                 rows={3}
-                defaultValue={selectedInvoice?.description || ''}
+                value={invoiceForm.description}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, description: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12}>
@@ -490,6 +568,17 @@ const Billing: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Error Notification */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+      >
+        <Alert onClose={() => setError(null)} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

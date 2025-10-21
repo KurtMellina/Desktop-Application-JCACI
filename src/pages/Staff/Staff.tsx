@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -27,6 +27,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   Add,
@@ -39,78 +41,61 @@ import {
   Phone,
   Work,
 } from '@mui/icons-material';
+import { staffService, Staff as StaffType, StaffInsert, StaffUpdate } from '../../services/database';
 
-interface StaffMember {
-  id: number;
+// Transform the database staff to match component interface
+interface StaffDisplay extends StaffType {
   firstName: string;
   lastName: string;
-  email: string;
-  phone: string;
   position: string;
-  department: string;
-  status: 'Active' | 'Inactive' | 'On Leave';
   hireDate: string;
-  salary: number;
-  avatar?: string;
 }
 
 const Staff: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('All');
   const [staffDialogOpen, setStaffDialogOpen] = useState(false);
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+  const [selectedStaff, setSelectedStaff] = useState<StaffDisplay | null>(null);
+  const [staffMembers, setStaffMembers] = useState<StaffDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<Omit<StaffType, 'id' | 'created_at' | 'updated_at'>>({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone: '',
+    role: '',
+    department: '',
+    status: 'Active',
+    hire_date: '',
+    avatar_url: undefined,
+  });
 
-  // Mock data - in a real app, this would come from an API
-  const staffMembers: StaffMember[] = [
-    {
-      id: 1,
-      firstName: 'John',
-      lastName: 'Smith',
-      email: 'john.smith@jollychildren.edu',
-      phone: '+1 (555) 123-4567',
-      position: 'Principal',
-      department: 'Administration',
-      status: 'Active',
-      hireDate: '2020-01-15',
-      salary: 75000,
-    },
-    {
-      id: 2,
-      firstName: 'Sarah',
-      lastName: 'Johnson',
-      email: 'sarah.johnson@jollychildren.edu',
-      phone: '+1 (555) 123-4568',
-      position: 'Math Teacher',
-      department: 'Academics',
-      status: 'Active',
-      hireDate: '2021-08-20',
-      salary: 45000,
-    },
-    {
-      id: 3,
-      firstName: 'Michael',
-      lastName: 'Brown',
-      email: 'michael.brown@jollychildren.edu',
-      phone: '+1 (555) 123-4569',
-      position: 'Science Teacher',
-      department: 'Academics',
-      status: 'Active',
-      hireDate: '2022-01-10',
-      salary: 45000,
-    },
-    {
-      id: 4,
-      firstName: 'Emily',
-      lastName: 'Davis',
-      email: 'emily.davis@jollychildren.edu',
-      phone: '+1 (555) 123-4570',
-      position: 'Receptionist',
-      department: 'Administration',
-      status: 'On Leave',
-      hireDate: '2023-03-01',
-      salary: 35000,
-    },
-  ];
+  // Load staff from database
+  const loadStaff = async () => {
+    try {
+      setLoading(true);
+      const data = await staffService.getAll();
+      // Transform data to match component interface
+      const transformedStaff: StaffDisplay[] = data.map(staff => ({
+        ...staff,
+        firstName: staff.first_name,
+        lastName: staff.last_name,
+        position: staff.role,
+        hireDate: staff.hire_date,
+      }));
+      setStaffMembers(transformedStaff);
+    } catch (error: any) {
+      setError(error.message || 'Failed to load staff');
+      console.error('Error loading staff:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStaff();
+  }, []);
 
   const departments = ['All', 'Administration', 'Academics', 'Support', 'Maintenance'];
 
@@ -151,30 +136,94 @@ const Staff: React.FC = () => {
 
   const handleAddStaff = () => {
     setSelectedStaff(null);
+    setForm({
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: '',
+      role: '',
+      department: '',
+      status: 'Active',
+      hire_date: '',
+      avatar_url: undefined,
+    });
     setStaffDialogOpen(true);
   };
 
-  const handleEditStaff = (staff: StaffMember) => {
+  const handleEditStaff = (staff: StaffDisplay) => {
     setSelectedStaff(staff);
+    setForm({
+      first_name: staff.first_name,
+      last_name: staff.last_name,
+      email: staff.email,
+      phone: staff.phone || '',
+      role: staff.role,
+      department: staff.department,
+      status: staff.status,
+      hire_date: staff.hire_date,
+      avatar_url: staff.avatar_url,
+    });
     setStaffDialogOpen(true);
   };
 
-  const handleViewStaff = (staff: StaffMember) => {
+  const handleViewStaff = (staff: StaffDisplay) => {
     // In a real app, this would open a detailed view
     console.log('View staff:', staff);
   };
 
-  const handleDeleteStaff = (staff: StaffMember) => {
-    if (window.confirm(`Are you sure you want to delete ${staff.firstName} ${staff.lastName}?`)) {
-      // In a real app, this would make an API call to delete the staff member
-      console.log('Delete staff:', staff);
+  const handleDeleteStaff = async (staff: StaffDisplay) => {
+    if (window.confirm(`Are you sure you want to delete ${staff.first_name} ${staff.last_name}?`)) {
+      try {
+        await staffService.delete(staff.id);
+        await loadStaff(); // Refresh the list
+        setError(null);
+      } catch (error: any) {
+        setError(error.message || 'Failed to delete staff member');
+      }
     }
   };
 
-  const handleSaveStaff = () => {
-    // In a real app, this would save to an API
-    console.log('Save staff:', selectedStaff);
-    setStaffDialogOpen(false);
+  const handleSaveStaff = async () => {
+    try {
+      if (selectedStaff) {
+        // update existing
+        const updateData: StaffUpdate = {
+          first_name: form.first_name,
+          last_name: form.last_name,
+          email: form.email,
+          phone: form.phone,
+          role: form.role,
+          department: form.department,
+          status: form.status,
+          hire_date: form.hire_date,
+          avatar_url: form.avatar_url,
+        };
+        await staffService.update(selectedStaff.id, updateData);
+      } else {
+        // create new
+        const newStaff: StaffInsert = {
+          first_name: form.first_name,
+          last_name: form.last_name,
+          email: form.email,
+          phone: form.phone,
+          role: form.role,
+          department: form.department,
+          status: form.status,
+          hire_date: form.hire_date,
+          avatar_url: form.avatar_url,
+        };
+        await staffService.create(newStaff);
+      }
+      await loadStaff(); // Refresh the list
+      setStaffDialogOpen(false);
+      setError(null);
+    } catch (error: any) {
+      setError(error.message || 'Failed to save staff member');
+    }
+  };
+
+  const handleFormChange = (field: keyof typeof form, value: any) => {
+    setForm(prev => ({ ...prev, [field]: value }));
   };
 
   return (
@@ -309,11 +358,11 @@ const Staff: React.FC = () => {
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Avatar sx={{ width: 40, height: 40 }}>
-                          {member.firstName[0]}{member.lastName[0]}
+                          {member.first_name[0]}{member.last_name[0]}
                         </Avatar>
                         <Box>
                           <Typography variant="body2" fontWeight="bold">
-                            {member.firstName} {member.lastName}
+                            {member.first_name} {member.last_name}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             ID: {member.id}
@@ -321,7 +370,7 @@ const Staff: React.FC = () => {
                         </Box>
                       </Box>
                     </TableCell>
-                    <TableCell>{member.position}</TableCell>
+                    <TableCell>{member.role}</TableCell>
                     <TableCell>{member.department}</TableCell>
                     <TableCell>
                       <Box>
@@ -329,10 +378,12 @@ const Staff: React.FC = () => {
                           <Email sx={{ fontSize: 16 }} />
                           <Typography variant="caption">{member.email}</Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Phone sx={{ fontSize: 16 }} />
-                          <Typography variant="caption">{member.phone}</Typography>
-                        </Box>
+                        {member.phone && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Phone sx={{ fontSize: 16 }} />
+                            <Typography variant="caption">{member.phone}</Typography>
+                          </Box>
+                        )}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -342,7 +393,7 @@ const Staff: React.FC = () => {
                         size="small"
                       />
                     </TableCell>
-                    <TableCell>{new Date(member.hireDate).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(member.hire_date).toLocaleDateString()}</TableCell>
                     <TableCell align="center">
                       <Tooltip title="View Details">
                         <IconButton
@@ -389,14 +440,16 @@ const Staff: React.FC = () => {
               <TextField
                 fullWidth
                 label="First Name"
-                defaultValue={selectedStaff?.firstName || ''}
+                value={form.first_name}
+                onChange={(e) => handleFormChange('first_name', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Last Name"
-                defaultValue={selectedStaff?.lastName || ''}
+                value={form.last_name}
+                onChange={(e) => handleFormChange('last_name', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -404,21 +457,24 @@ const Staff: React.FC = () => {
                 fullWidth
                 label="Email"
                 type="email"
-                defaultValue={selectedStaff?.email || ''}
+                value={form.email}
+                onChange={(e) => handleFormChange('email', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Phone"
-                defaultValue={selectedStaff?.phone || ''}
+                value={form.phone}
+                onChange={(e) => handleFormChange('phone', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Position"
-                defaultValue={selectedStaff?.position || ''}
+                label="Position/Role"
+                value={form.role}
+                onChange={(e) => handleFormChange('role', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -426,7 +482,8 @@ const Staff: React.FC = () => {
                 <InputLabel>Department</InputLabel>
                 <Select
                   label="Department"
-                  defaultValue={selectedStaff?.department || ''}
+                  value={form.department}
+                  onChange={(e) => handleFormChange('department', e.target.value)}
                 >
                   <MenuItem value="Administration">Administration</MenuItem>
                   <MenuItem value="Academics">Academics</MenuItem>
@@ -440,7 +497,8 @@ const Staff: React.FC = () => {
                 <InputLabel>Status</InputLabel>
                 <Select
                   label="Status"
-                  defaultValue={selectedStaff?.status || 'Active'}
+                  value={form.status}
+                  onChange={(e) => handleFormChange('status', e.target.value)}
                 >
                   <MenuItem value="Active">Active</MenuItem>
                   <MenuItem value="Inactive">Inactive</MenuItem>
@@ -453,19 +511,9 @@ const Staff: React.FC = () => {
                 fullWidth
                 label="Hire Date"
                 type="date"
-                defaultValue={selectedStaff?.hireDate || ''}
+                value={form.hire_date}
+                onChange={(e) => handleFormChange('hire_date', e.target.value)}
                 InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Salary"
-                type="number"
-                defaultValue={selectedStaff?.salary || ''}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                }}
               />
             </Grid>
             <Grid item xs={12}>
@@ -490,6 +538,17 @@ const Staff: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Error Notification */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+      >
+        <Alert onClose={() => setError(null)} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -18,6 +19,7 @@ import {
   Paper,
   Divider,
   Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   Person,
@@ -25,8 +27,10 @@ import {
   Payment,
   CheckCircle,
 } from '@mui/icons-material';
+import { studentsService, StudentInsert } from '../../services/database';
 
 const Enrollment: React.FC = () => {
+  const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [formData, setFormData] = useState({
     // Student Information
@@ -60,6 +64,31 @@ const Enrollment: React.FC = () => {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  // Load draft form if exists
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('enrollmentDraft');
+      if (raw) {
+        const draft = JSON.parse(raw);
+        setFormData((prev) => ({ ...prev, ...draft }));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Autosave draft on change
+  useEffect(() => {
+    try {
+      localStorage.setItem('enrollmentDraft', JSON.stringify(formData));
+    } catch {
+      // ignore
+    }
+  }, [formData]);
 
   const steps = [
     { label: 'Student Information', icon: <Person /> },
@@ -113,11 +142,40 @@ const Enrollment: React.FC = () => {
     setActiveStep(prev => prev - 1);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (validateStep(activeStep)) {
-      // In a real app, this would submit to an API
-      console.log('Enrollment submitted:', formData);
-      alert('Student enrolled successfully!');
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const newStudent: StudentInsert = {
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          grade: formData.grade,
+          section: formData.section,
+          status: 'Active',
+          enrollment_date: new Date().toISOString().split('T')[0], // Format as YYYY-MM-DD
+        };
+
+        const createdStudent = await studentsService.create(newStudent);
+        
+        // Clear draft
+        localStorage.removeItem('enrollmentDraft');
+        
+        setSuccess(true);
+        
+        // Navigate to students page after a short delay
+        setTimeout(() => {
+          navigate('/students');
+        }, 1500);
+        
+      } catch (error: any) {
+        setError(error.message || 'Failed to enroll student');
+        console.error('Error enrolling student:', error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -222,7 +280,7 @@ const Enrollment: React.FC = () => {
                   onChange={(e) => handleInputChange('grade', e.target.value)}
                   label="Grade"
                 >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(grade => (
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(grade => (
                     <MenuItem key={grade} value={grade.toString()}>
                       Grade {grade}
                     </MenuItem>
@@ -439,8 +497,9 @@ const Enrollment: React.FC = () => {
                   variant="contained"
                   onClick={handleSubmit}
                   startIcon={<CheckCircle />}
+                  disabled={loading}
                 >
-                  Complete Enrollment
+                  {loading ? 'Enrolling...' : 'Complete Enrollment'}
                 </Button>
               ) : (
                 <Button
@@ -454,6 +513,28 @@ const Enrollment: React.FC = () => {
           </Box>
         </CardContent>
       </Card>
+
+      {/* Error Notification */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+      >
+        <Alert onClose={() => setError(null)} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
+
+      {/* Success Notification */}
+      <Snackbar
+        open={success}
+        autoHideDuration={3000}
+        onClose={() => setSuccess(false)}
+      >
+        <Alert onClose={() => setSuccess(false)} severity="success">
+          Student enrolled successfully! Redirecting to students page...
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

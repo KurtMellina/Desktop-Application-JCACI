@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -25,6 +25,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   Assessment,
@@ -33,10 +35,12 @@ import {
   Email,
   FilterList,
   Visibility,
+  Delete,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { settingsService } from '../../services/database';
 
 interface Report {
   id: number;
@@ -56,9 +60,12 @@ const Reports: React.FC = () => {
   }>({ start: null, end: null });
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [reportList, setReportList] = useState<Report[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  // Mock data - in a real app, this would come from an API
-  const reports: Report[] = [
+  // Default seed used on first run only
+  const defaultReportsSeed: Report[] = [
     {
       id: 1,
       name: 'Monthly Attendance Report',
@@ -106,9 +113,30 @@ const Reports: React.FC = () => {
     },
   ];
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('reports');
+      if (raw) {
+        setReportList(JSON.parse(raw) as Report[]);
+      } else {
+        setReportList(defaultReportsSeed);
+      }
+    } catch {
+      setReportList(defaultReportsSeed);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('reports', JSON.stringify(reportList));
+    } catch {
+      // ignore
+    }
+  }, [reportList]);
+
   const reportTypes = ['All', 'Attendance', 'Academic', 'Financial', 'Student', 'Staff'];
 
-  const filteredReports = reports.filter(report => {
+  const filteredReports = reportList.filter(report => {
     return selectedReportType === 'All' || report.type === selectedReportType;
   });
 
@@ -152,17 +180,34 @@ const Reports: React.FC = () => {
     console.log('Emailing report:', report);
   };
 
-  const confirmGenerate = () => {
-    // In a real app, this would generate the report
-    console.log('Generating report:', selectedReport);
-    setGenerateDialogOpen(false);
+  const handleDeleteReport = (report: Report) => {
+    if (window.confirm(`Are you sure you want to delete report "${report.name}"?`)) {
+      setReportList(prev => prev.filter(r => r.id !== report.id));
+      setSuccess(true);
+    }
+  };
+
+  const confirmGenerate = async () => {
+    try {
+      if (selectedReport) {
+        setReportList(prev => prev.map(r => (
+          r.id === selectedReport.id
+            ? { ...r, lastGenerated: new Date().toISOString().slice(0, 10), status: 'Available' }
+            : r
+        )));
+        setSuccess(true);
+      }
+      setGenerateDialogOpen(false);
+    } catch (error: any) {
+      setError(error.message || 'Failed to generate report');
+    }
   };
 
   const getReportStats = () => {
-    const total = reports.length;
-    const available = reports.filter(r => r.status === 'Available').length;
-    const generating = reports.filter(r => r.status === 'Generating').length;
-    const byType = reports.reduce((acc, report) => {
+    const total = reportList.length;
+    const available = reportList.filter(r => r.status === 'Available').length;
+    const generating = reportList.filter(r => r.status === 'Generating').length;
+    const byType = reportList.reduce((acc, report) => {
       acc[report.type] = (acc[report.type] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -371,6 +416,15 @@ const Reports: React.FC = () => {
                             <Email />
                           </IconButton>
                         </Tooltip>
+                        <Tooltip title="Delete Report">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDeleteReport(report)}
+                            color="error"
+                          >
+                            <Delete />
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -443,6 +497,28 @@ const Reports: React.FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Error Notification */}
+        <Snackbar
+          open={!!error}
+          autoHideDuration={6000}
+          onClose={() => setError(null)}
+        >
+          <Alert onClose={() => setError(null)} severity="error">
+            {error}
+          </Alert>
+        </Snackbar>
+
+        {/* Success Notification */}
+        <Snackbar
+          open={success}
+          autoHideDuration={3000}
+          onClose={() => setSuccess(false)}
+        >
+          <Alert onClose={() => setSuccess(false)} severity="success">
+            Operation completed successfully!
+          </Alert>
+        </Snackbar>
       </Box>
     </LocalizationProvider>
   );

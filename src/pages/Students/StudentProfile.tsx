@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Card,
@@ -28,6 +28,7 @@ import {
   CalendarToday,
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
+import { studentsService, Student } from '../../services/database';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -51,29 +52,77 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
+// Transform the database student to match component interface
+interface StudentDisplay extends Student {
+  firstName: string;
+  lastName: string;
+  enrollmentDate: string;
+}
+
 const StudentProfile: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [tabValue, setTabValue] = useState(0);
+  const [student, setStudent] = useState<StudentDisplay | null>(null);
+  const [studentGrades, setStudentGrades] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock student data - in a real app, this would be fetched based on the ID
-  const student = {
-    id: 1,
-    firstName: 'Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.johnson@email.com',
-    phone: '+1 (555) 123-4567',
-    address: '123 Main St, Anytown, ST 12345',
-    grade: '5',
-    section: 'A',
-    status: 'Active',
-    enrollmentDate: '2023-09-01',
-    dateOfBirth: '2012-03-15',
-    parentName: 'John & Jane Johnson',
-    parentPhone: '+1 (555) 123-4568',
-    parentEmail: 'parents.johnson@email.com',
-    avatar: null,
-  };
+  useEffect(() => {
+    const loadStudent = async () => {
+      if (!id) return;
+      
+      try {
+        setLoading(true);
+        setError(null);
+        const studentData = await studentsService.getById(Number(id));
+        
+        if (studentData) {
+          // Transform data to match component interface
+          const transformedStudent: StudentDisplay = {
+            ...studentData,
+            firstName: studentData.first_name,
+            lastName: studentData.last_name,
+            enrollmentDate: studentData.enrollment_date,
+          };
+          setStudent(transformedStudent);
+        } else {
+          setStudent(null);
+        }
+      } catch (error: any) {
+        setError(error.message || 'Failed to load student');
+        setStudent(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStudent();
+  }, [id]);
+
+  useEffect(() => {
+    const loadStudentGrades = async () => {
+      if (!id) return;
+      
+      try {
+        // For now, we'll use empty array since grades service needs to be enhanced
+        // TODO: Implement getByStudent in gradesService and load real data
+        setStudentGrades([]);
+      } catch (error) {
+        console.error('Error loading student grades:', error);
+        setStudentGrades([]);
+      }
+    };
+
+    loadStudentGrades();
+  }, [id]);
+
+  const initials = useMemo(() => {
+    if (!student) return '??';
+    const f = student.firstName?.[0] || '?';
+    const l = student.lastName?.[0] || '?';
+    return `${f}${l}`;
+  }, [student]);
 
   const attendanceRecords = [
     { date: '2024-01-15', status: 'Present', subject: 'Math' },
@@ -120,6 +169,45 @@ const StudentProfile: React.FC = () => {
     return 'error';
   };
 
+  if (loading) {
+    return (
+      <Box>
+        <Button variant="outlined" onClick={() => navigate('/students')}>
+          ← Back to Students
+        </Button>
+        <Typography variant="h6" sx={{ mt: 2 }}>
+          Loading student information...
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box>
+        <Button variant="outlined" onClick={() => navigate('/students')}>
+          ← Back to Students
+        </Button>
+        <Typography variant="h6" sx={{ mt: 2 }} color="error">
+          Error: {error}
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (!student) {
+    return (
+      <Box>
+        <Button variant="outlined" onClick={() => navigate('/students')}>
+          ← Back to Students
+        </Button>
+        <Typography variant="h6" sx={{ mt: 2 }}>
+          Student not found.
+        </Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -143,7 +231,7 @@ const StudentProfile: React.FC = () => {
           <Grid container spacing={3} alignItems="center">
             <Grid item>
               <Avatar sx={{ width: 80, height: 80, fontSize: 32 }}>
-                {student.firstName[0]}{student.lastName[0]}
+                {initials}
               </Avatar>
             </Grid>
             <Grid item xs>
@@ -151,8 +239,8 @@ const StudentProfile: React.FC = () => {
                 {student.firstName} {student.lastName}
               </Typography>
               <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                <Chip label={`Grade ${student.grade}`} color="primary" />
-                <Chip label={`Section ${student.section}`} color="secondary" />
+                <Chip label={`Grade ${student.grade || '-'}`} color="primary" />
+                <Chip label={`Section ${student.section || '-'}`} color="secondary" />
                 <Chip 
                   label={student.status} 
                   color={student.status === 'Active' ? 'success' : 'warning'} 
@@ -164,16 +252,8 @@ const StudentProfile: React.FC = () => {
                     <Email sx={{ mr: 1, fontSize: 20 }} />
                     <Typography variant="body2">{student.email}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Phone sx={{ mr: 1, fontSize: 20 }} />
-                    <Typography variant="body2">{student.phone}</Typography>
-                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <LocationOn sx={{ mr: 1, fontSize: 20 }} />
-                    <Typography variant="body2">{student.address}</Typography>
-                  </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <CalendarToday sx={{ mr: 1, fontSize: 20 }} />
                     <Typography variant="body2">
@@ -205,49 +285,20 @@ const StudentProfile: React.FC = () => {
               <List>
                 <ListItem>
                   <ListItemText
-                    primary="Date of Birth"
-                    secondary={new Date(student.dateOfBirth).toLocaleDateString()}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText
                     primary="Grade"
-                    secondary={`Grade ${student.grade}`}
+                    secondary={`Grade ${student.grade || '-'}`}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemText
                     primary="Section"
-                    secondary={`Section ${student.section}`}
+                    secondary={`Section ${student.section || '-'}`}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemText
                     primary="Status"
                     secondary={student.status}
-                  />
-                </ListItem>
-              </List>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Typography variant="h6" gutterBottom>Parent/Guardian Information</Typography>
-              <List>
-                <ListItem>
-                  <ListItemText
-                    primary="Parent/Guardian Name"
-                    secondary={student.parentName}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText
-                    primary="Parent Phone"
-                    secondary={student.parentPhone}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText
-                    primary="Parent Email"
-                    secondary={student.parentEmail}
                   />
                 </ListItem>
               </List>
@@ -280,11 +331,11 @@ const StudentProfile: React.FC = () => {
         <TabPanel value={tabValue} index={2}>
           <Typography variant="h6" gutterBottom>Academic Performance</Typography>
           <List>
-            {gradeRecords.map((record, index) => (
+            {studentGrades.map((record, index) => (
               <ListItem key={index} divider>
                 <ListItemText
-                  primary={record.subject}
-                  secondary={`${record.term} - ${record.percentage}%`}
+                  primary={`${record.subject} • ${record.assignment || '—'}`}
+                  secondary={`${record.term || '—'} - ${record.percentage}%`}
                 />
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Chip
@@ -300,6 +351,9 @@ const StudentProfile: React.FC = () => {
                 </Box>
               </ListItem>
             ))}
+            {studentGrades.length === 0 && (
+              <Typography variant="body2" color="text.secondary">No grades yet.</Typography>
+            )}
           </List>
         </TabPanel>
 

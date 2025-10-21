@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Card,
@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Snackbar,
 } from '@mui/material';
 import {
   CheckCircle,
@@ -35,77 +36,186 @@ import {
   Print,
   FilterList,
   Refresh,
+  History,
+  Person,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { studentsService, attendanceService, Attendance as AttendanceType, AttendanceInsert } from '../../services/database';
 
-interface Student {
+interface StudentAttendance {
   id: number;
+  student_id: number;
   name: string;
   rollNumber: string;
   status: 'Present' | 'Absent' | 'Late' | 'Excused';
+  date: string;
+  notes?: string;
+}
+
+interface AdminActivity {
+  id: string;
+  timestamp: Date;
+  adminName: string;
+  action: string;
+  studentName: string;
+  previousStatus?: string;
+  newStatus: string;
+  details: string;
 }
 
 const Attendance: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
-  const [attendanceData, setAttendanceData] = useState<Student[]>([]);
+  const [attendanceData, setAttendanceData] = useState<StudentAttendance[]>([]);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [adminActivityLog, setAdminActivityLog] = useState<AdminActivity[]>([]);
+  const [adminName] = useState('Admin User'); // In a real app, this would come from auth context
 
-  // Mock data - in a real app, this would come from an API
-  const students: Student[] = [
-    { id: 1, name: 'Sarah Johnson', rollNumber: '001', status: 'Present' },
-    { id: 2, name: 'Michael Wilson', rollNumber: '002', status: 'Present' },
-    { id: 3, name: 'Emily Davis', rollNumber: '003', status: 'Absent' },
-    { id: 4, name: 'James Brown', rollNumber: '004', status: 'Late' },
-    { id: 5, name: 'Olivia Miller', rollNumber: '005', status: 'Present' },
-    { id: 6, name: 'William Garcia', rollNumber: '006', status: 'Present' },
-    { id: 7, name: 'Sophia Martinez', rollNumber: '007', status: 'Excused' },
-    { id: 8, name: 'Alexander Anderson', rollNumber: '008', status: 'Present' },
-  ];
-
-  const grades = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+  const grades = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
   const sections = ['A', 'B', 'C', 'D'];
+
+  // Load students and attendance data
+  const loadAttendanceData = async () => {
+    if (!selectedGrade || !selectedSection) {
+      setAttendanceData([]);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Get all students
+      const allStudents = await studentsService.getAll();
+      
+      // Filter students by grade and section
+      const filteredStudents = allStudents.filter(student => 
+        student.grade === selectedGrade && student.section === selectedSection
+      );
+      
+      // Get existing attendance for the selected date
+      const dateStr = selectedDate.toISOString().slice(0, 10);
+      const existingAttendance = await attendanceService.getByDate(dateStr);
+      
+      // Create attendance records for students
+      const attendanceRecords: StudentAttendance[] = filteredStudents.map(student => {
+        const existing = existingAttendance.find(att => att.student_id === student.id);
+        return {
+          id: existing?.id || 0,
+          student_id: student.id,
+          name: `${student.first_name} ${student.last_name}`,
+          rollNumber: student.id.toString().padStart(3, '0'),
+          status: existing?.status || 'Present',
+          date: dateStr,
+          notes: existing?.notes,
+        };
+      });
+      
+      setAttendanceData(attendanceRecords);
+    } catch (error: any) {
+      setError(error.message || 'Failed to load attendance data');
+      console.error('Error loading attendance:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAttendanceData();
+  }, [selectedDate, selectedGrade, selectedSection]);
 
   const handleGradeChange = (grade: string) => {
     setSelectedGrade(grade);
     setSelectedSection('');
-    // In a real app, this would fetch students for the selected grade
-    setAttendanceData(students);
+    setAttendanceData([]);
   };
 
   const handleSectionChange = (section: string) => {
     setSelectedSection(section);
-    // In a real app, this would filter students by section
-    setAttendanceData(students);
+    // data will load via effect
   };
 
-  const handleStatusChange = (studentId: number, newStatus: Student['status']) => {
-    setAttendanceData(prev =>
-      prev.map(student =>
-        student.id === studentId ? { ...student, status: newStatus } : student
-      )
-    );
+  const handleStatusChange = (studentId: number, newStatus: StudentAttendance['status']) => {
+    setAttendanceData(prev => {
+      const updatedData = prev.map(student => {
+        if (student.student_id === studentId) {
+          // Log the admin activity
+          const activity: AdminActivity = {
+            id: `${Date.now()}-${studentId}`,
+            timestamp: new Date(),
+            adminName: adminName,
+            action: 'Status Changed',
+            studentName: student.name,
+            previousStatus: student.status,
+            newStatus: newStatus,
+            details: `Changed ${student.name}'s attendance from ${student.status} to ${newStatus}`
+          };
+          
+          setAdminActivityLog(prevLog => [activity, ...prevLog.slice(0, 49)]); // Keep last 50 activities
+          
+          return { ...student, status: newStatus };
+        }
+        return student;
+      });
+      return updatedData;
+    });
   };
 
   const handleSaveAttendance = () => {
     setSaveDialogOpen(true);
   };
 
-  const confirmSave = () => {
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+  const confirmSave = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const dateStr = selectedDate.toISOString().slice(0, 10);
+      
+      // Log bulk save activity
+      const saveActivity: AdminActivity = {
+        id: `save-${Date.now()}`,
+        timestamp: new Date(),
+        adminName: adminName,
+        action: 'Bulk Save',
+        studentName: `${attendanceData.length} students`,
+        newStatus: 'Saved',
+        details: `Saved attendance for Grade ${selectedGrade} - Section ${selectedSection} on ${selectedDate.toLocaleDateString()}`
+      };
+      setAdminActivityLog(prevLog => [saveActivity, ...prevLog.slice(0, 49)]);
+      
+      // Create attendance records for the database
+      const attendanceRecords: AttendanceInsert[] = attendanceData.map(record => ({
+        student_id: record.student_id,
+        date: dateStr,
+        status: record.status,
+        notes: record.notes,
+      }));
+      
+      // Save attendance records
+      await attendanceService.bulkCreate(attendanceRecords);
+      
+      setSuccess(true);
       setSaveDialogOpen(false);
-      alert('Attendance saved successfully!');
-    }, 1000);
+      
+      // Refresh the data
+      await loadAttendanceData();
+      
+    } catch (error: any) {
+      setError(error.message || 'Failed to save attendance');
+      console.error('Error saving attendance:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const getStatusColor = (status: Student['status']) => {
+  const getStatusColor = (status: StudentAttendance['status']) => {
     switch (status) {
       case 'Present': return 'success';
       case 'Absent': return 'error';
@@ -115,7 +225,7 @@ const Attendance: React.FC = () => {
     }
   };
 
-  const getStatusIcon = (status: Student['status']) => {
+  const getStatusIcon = (status: StudentAttendance['status']) => {
     switch (status) {
       case 'Present': return <CheckCircle />;
       case 'Absent': return <Cancel />;
@@ -288,6 +398,60 @@ const Attendance: React.FC = () => {
           </Grid>
         )}
 
+        {/* Admin Activity Log */}
+        {adminActivityLog.length > 0 && (
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <History sx={{ mr: 1, color: 'primary.main' }} />
+                <Typography variant="h6">Admin Activity Log</Typography>
+              </Box>
+              <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
+                {adminActivityLog.map((activity) => (
+                  <Box
+                    key={activity.id}
+                    sx={{
+                      p: 2,
+                      mb: 1,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      backgroundColor: 'background.paper',
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Person sx={{ mr: 1, fontSize: 16, color: 'primary.main' }} />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                          {activity.adminName}
+                        </Typography>
+                        <Typography variant="body2" sx={{ ml: 1, color: 'text.secondary' }}>
+                          • {activity.action}
+                        </Typography>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        {activity.timestamp.toLocaleTimeString()}
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>{activity.studentName}</strong>
+                      {activity.previousStatus && (
+                        <span>
+                          {' '}• Changed from <span style={{ color: '#f44336' }}>{activity.previousStatus}</span> to{' '}
+                          <span style={{ color: '#4caf50' }}>{activity.newStatus}</span>
+                        </span>
+                      )}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {activity.details}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Attendance Table */}
         {selectedGrade && selectedSection && (
           <Card>
@@ -327,28 +491,28 @@ const Attendance: React.FC = () => {
                         <TableCell align="center">
                           <Checkbox
                             checked={student.status === 'Present'}
-                            onChange={() => handleStatusChange(student.id, 'Present')}
+                            onChange={() => handleStatusChange(student.student_id, 'Present')}
                             color="success"
                           />
                         </TableCell>
                         <TableCell align="center">
                           <Checkbox
                             checked={student.status === 'Absent'}
-                            onChange={() => handleStatusChange(student.id, 'Absent')}
+                            onChange={() => handleStatusChange(student.student_id, 'Absent')}
                             color="error"
                           />
                         </TableCell>
                         <TableCell align="center">
                           <Checkbox
                             checked={student.status === 'Late'}
-                            onChange={() => handleStatusChange(student.id, 'Late')}
+                            onChange={() => handleStatusChange(student.student_id, 'Late')}
                             color="warning"
                           />
                         </TableCell>
                         <TableCell align="center">
                           <Checkbox
                             checked={student.status === 'Excused'}
-                            onChange={() => handleStatusChange(student.id, 'Excused')}
+                            onChange={() => handleStatusChange(student.student_id, 'Excused')}
                             color="info"
                           />
                         </TableCell>
@@ -392,6 +556,28 @@ const Attendance: React.FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Error Notification */}
+        <Snackbar
+          open={!!error}
+          autoHideDuration={6000}
+          onClose={() => setError(null)}
+        >
+          <Alert onClose={() => setError(null)} severity="error">
+            {error}
+          </Alert>
+        </Snackbar>
+
+        {/* Success Notification */}
+        <Snackbar
+          open={success}
+          autoHideDuration={3000}
+          onClose={() => setSuccess(false)}
+        >
+          <Alert onClose={() => setSuccess(false)} severity="success">
+            Attendance saved successfully!
+          </Alert>
+        </Snackbar>
       </Box>
     </LocalizationProvider>
   );
